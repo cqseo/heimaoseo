@@ -67,10 +67,7 @@ jobs:
           else
             NEW=$(git diff --cached --stat docs/p/ 2>/dev/null | grep -oP '\d+(?= insertion)' | head -1 || echo "0")
             TOTAL=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
-            git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01LQg4o4cteWfN8Jbq7nAei6"
+            git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]"
             git push
             echo "✅ 已推送 ${NEW} 頁新內容，站點累計 ${TOTAL} 頁"
           fi
