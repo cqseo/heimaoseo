@@ -1,0 +1,95 @@
+name: 批量發布 Telegraph 引流頁面
+
+on:
+  # 手動觸發，可輸入本次批次大小
+  workflow_dispatch:
+    inputs:
+      batch_size:
+        description: "本次發布頁數（預設 200）"
+        required: false
+        default: "200"
+      model_name:
+        description: "使用的模型（預設 gpt-4o-mini）"
+        required: false
+        default: "gpt-4o-mini"
+
+  # 定時觸發：每 2 小時自動跑一批
+  schedule:
+    - cron: "0 */2 * * *"
+
+# 允許工作流向倉庫推送更新
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110    # 防止意外超時（GitHub Actions 最長 6 小時）
+
+    steps:
+      # ── 1. 拉取倉庫（包含 done_titles.txt / telegraph_urls.txt）
+      - name: Checkout 倉庫
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ── 2. 設置 Python 環境
+      - name: 設置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      # ── 3. 安裝依賴
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+
+      # ── 4. 執行批量發布腳本
+      - name: 執行批量發布
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
+          MODEL_NAME: ${{ github.event.inputs.model_name || 'gpt-4o-mini' }}
+          BATCH_SIZE: ${{ github.event.inputs.batch_size || '200' }}
+        run: python main.py
+
+      # ── 5. 提交並推送更新後的進度文件
+      - name: 提交進度文件到倉庫
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+          # 只在有變更時才提交
+          git add telegraph_urls.txt done_titles.txt || true
+
+          if git diff --cached --quiet; then
+            echo "✅ 本次無新發布，跳過提交"
+          else
+            # 統計本次新增行數
+            NEW_URLS=$(git diff --cached --stat telegraph_urls.txt 2>/dev/null | grep -oP '\d+(?= insertion)' || echo "0")
+            git commit -m "🤖 自動發布：新增 ${NEW_URLS} 個 Telegraph 頁面 [skip ci]"
+            git push
+            echo "✅ 已推送 ${NEW_URLS} 條新 URL 到倉庫"
+          fi
+
+      # ── 6. 輸出本次發布摘要
+      - name: 輸出發布摘要
+        if: always()
+        run: |
+          echo "## 📊 發布摘要" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f telegraph_urls.txt ]; then
+            TOTAL=$(wc -l < telegraph_urls.txt)
+            echo "- **累計已發布頁面**：${TOTAL} 頁" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ -f done_titles.txt ]; then
+            DONE=$(wc -l < done_titles.txt)
+            echo "- **累計已完成條目**：${DONE} 條" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          REMAINING=$((1026 - ${DONE:-0}))
+          echo "- **剩餘待發布**：${REMAINING} 頁" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "目標網站：[yuexia.app](https://yuexia.app/)" >> $GITHUB_STEP_SUMMARY
