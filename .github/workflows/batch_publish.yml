@@ -1,95 +1,89 @@
-name: 批量發布 Telegraph 引流頁面
+name: 批量生成 SEO 靜態頁面
 
 on:
-  # 手動觸發，可輸入本次批次大小
   workflow_dispatch:
     inputs:
       batch_size:
-        description: "本次發布頁數（預設 200）"
+        description: "本次生成頁數（預設 50）"
         required: false
-        default: "200"
+        default: "50"
       model_name:
         description: "使用的模型（預設 deepseek-chat）"
         required: false
         default: "deepseek-chat"
+      site_domain:
+        description: "站點域名（如已綁定自定義域名填這裡）"
+        required: false
+        default: ""
 
-  # 定時觸發：每 2 小時自動跑一批
   schedule:
-    - cron: "0 */2 * * *"
+    # 每 3 小時跑一批，避免 API 超支
+    - cron: "0 */3 * * *"
 
-# 允許工作流向倉庫推送更新
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
-  publish:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 110    # 防止意外超時（GitHub Actions 最長 6 小時）
+    timeout-minutes: 110
 
     steps:
-      # ── 1. 拉取倉庫（包含 done_titles.txt / telegraph_urls.txt）
       - name: Checkout 倉庫
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      # ── 2. 設置 Python 環境
       - name: 設置 Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: "pip"
 
-      # ── 3. 安裝依賴
       - name: 安裝依賴
         run: pip install -r requirements.txt
 
-      # ── 4. 執行批量發布腳本
-      - name: 執行批量發布
+      - name: 生成 SEO 靜態頁面
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
-          MODEL_NAME: ${{ github.event.inputs.model_name || 'deepseek-chat' }}
-          BATCH_SIZE: ${{ github.event.inputs.batch_size || '200' }}
+          OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.deepseek.com/v1' }}
+          MODEL_NAME:      ${{ github.event.inputs.model_name || 'deepseek-chat' }}
+          BATCH_SIZE:      ${{ github.event.inputs.batch_size || '50' }}
+          # 優先用手動輸入的域名，其次用 Secret，再次用默認
+          SITE_DOMAIN:     ${{ github.event.inputs.site_domain || secrets.SITE_DOMAIN || 'cqseo.github.io/heimaoseo' }}
         run: python main.py
 
-      # ── 5. 提交並推送更新後的進度文件
-      - name: 提交進度文件到倉庫
+      - name: 提交生成的文件到倉庫
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          # 只在有變更時才提交
-          git add telegraph_urls.txt done_titles.txt || true
+          git add docs/ done_titles.txt published_urls.txt || true
 
           if git diff --cached --quiet; then
-            echo "✅ 本次無新發布，跳過提交"
+            echo "本次無新頁面生成"
           else
-            # 統計本次新增行數
-            NEW_URLS=$(git diff --cached --stat telegraph_urls.txt 2>/dev/null | grep -oP '\d+(?= insertion)' || echo "0")
-            git commit -m "🤖 自動發布：新增 ${NEW_URLS} 個 Telegraph 頁面 [skip ci]"
+            NEW=$(git diff --cached --stat docs/p/ 2>/dev/null | grep -oP '\d+(?= insertion)' | head -1 || echo "0")
+            TOTAL=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
+            git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01LQg4o4cteWfN8Jbq7nAei6"
             git push
-            echo "✅ 已推送 ${NEW_URLS} 條新 URL 到倉庫"
+            echo "✅ 已推送 ${NEW} 頁新內容，站點累計 ${TOTAL} 頁"
           fi
 
-      # ── 6. 輸出本次發布摘要
-      - name: 輸出發布摘要
+      - name: 輸出進度摘要
         if: always()
         run: |
-          echo "## 📊 發布摘要" >> $GITHUB_STEP_SUMMARY
+          echo "## 📊 生成摘要" >> $GITHUB_STEP_SUMMARY
+          TOTAL_PAGES=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
+          DONE_COUNT=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
+          REMAINING=$((1026 - DONE_COUNT))
+          echo "- **已生成頁面**：${TOTAL_PAGES} 頁" >> $GITHUB_STEP_SUMMARY
+          echo "- **剩餘待生成**：${REMAINING} 頁" >> $GITHUB_STEP_SUMMARY
+          echo "- **GitHub Pages**：https://cqseo.github.io/heimaoseo/" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f telegraph_urls.txt ]; then
-            TOTAL=$(wc -l < telegraph_urls.txt)
-            echo "- **累計已發布頁面**：${TOTAL} 頁" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -f done_titles.txt ]; then
-            DONE=$(wc -l < done_titles.txt)
-            echo "- **累計已完成條目**：${DONE} 條" >> $GITHUB_STEP_SUMMARY
-          fi
-
-          REMAINING=$((1026 - ${DONE:-0}))
-          echo "- **剩餘待發布**：${REMAINING} 頁" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "目標網站：[yuexia.app](https://yuexia.app/)" >> $GITHUB_STEP_SUMMARY
+          echo "🗺️ Sitemap：https://cqseo.github.io/heimaoseo/sitemap.xml" >> $GITHUB_STEP_SUMMARY
