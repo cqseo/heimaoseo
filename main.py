@@ -17,8 +17,8 @@ from openai import OpenAI
 # 環境變數配置
 # ─────────────────────────────────────────────
 OPENAI_API_KEY   = os.environ.get("OPENAI_API_KEY", "")
-OPENAI_BASE_URL  = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-MODEL_NAME       = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+OPENAI_BASE_URL  = os.environ.get("OPENAI_BASE_URL", "https://api.deepseek.com/v1")
+MODEL_NAME       = os.environ.get("MODEL_NAME", "deepseek-chat")
 BATCH_SIZE       = int(os.environ.get("BATCH_SIZE", "200"))
 
 DONE_FILE  = "done_titles.txt"

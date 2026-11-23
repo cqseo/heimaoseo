@@ -9,9 +9,9 @@ on:
         required: false
         default: "200"
       model_name:
-        description: "使用的模型（預設 gpt-4o-mini）"
+        description: "使用的模型（預設 deepseek-chat）"
         required: false
-        default: "gpt-4o-mini"
+        default: "deepseek-chat"
 
   # 定時觸發：每 2 小時自動跑一批
   schedule:
@@ -49,7 +49,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.openai.com/v1' }}
-          MODEL_NAME: ${{ github.event.inputs.model_name || 'gpt-4o-mini' }}
+          MODEL_NAME: ${{ github.event.inputs.model_name || 'deepseek-chat' }}
           BATCH_SIZE: ${{ github.event.inputs.batch_size || '200' }}
         run: python main.py
 
