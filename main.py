@@ -12,9 +12,16 @@ import time
 import random
 import re
 import hashlib
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 from openai import OpenAI
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    _PIL_OK = True
+except ImportError:
+    _PIL_OK = False
 
 # ─────────────────────────────────────────────
 # 環境變數配置
@@ -776,6 +783,12 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
   <meta property="og:site_name" content="{site_name}">
   <meta property="og:type" content="article">
   <meta property="og:locale" content="zh_TW">
+  <meta property="og:image" content="{og_image_url}">
+  <meta property="og:image:width" content="800">
+  <meta property="og:image:height" content="420">
+  <meta property="og:image:alt" content="{title}">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="{og_image_url}">
 
   <!-- Schema.org -->
   <script type="application/ld+json">
@@ -790,6 +803,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
         "url": "{canonical}",
         "datePublished": "{date}",
         "dateModified": "{date}",
+        "image": {{"@type": "ImageObject", "url": "{og_image_url}", "width": 800, "height": 420}},
         "author": {{"@type": "Organization", "name": "{site_name}", "url": "{site_base}"}},
         "publisher": {{"@type": "Organization", "name": "{site_name}", "url": "{site_base}"}},
         "inLanguage": "zh-TW",
@@ -820,7 +834,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
           "cssSelector": ["h1", "article h2", "article p"]
         }},
         "isPartOf": {{"@id": "{site_base}/#website"}},
-        "primaryImageOfPage": {{"@type": "ImageObject", "url": "{site_base}/og-image.png"}}
+        "primaryImageOfPage": {{"@type": "ImageObject", "url": "{og_image_url}", "width": 800, "height": 420}}
       }},
       {{
         "@type": "WebSite",
@@ -980,6 +994,100 @@ def build_faq_schema(faqs: list) -> str:
     return "[" + ",".join(items) + "]"
 
 
+# ─────────────────────────────────────────────
+# OG 配圖生成
+# ─────────────────────────────────────────────
+
+_FONT_SERIF = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc"
+_FONT_SANS  = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+# 備用字體（GitHub Actions ubuntu-latest 有安裝）
+_FONT_FALLBACKS = [
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
+
+def _get_font(size: int, serif: bool = True) -> "ImageFont.FreeTypeFont":
+    """取得字體，找不到理想字體就嘗試備用"""
+    candidates = [_FONT_SERIF if serif else _FONT_SANS] + _FONT_FALLBACKS
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def generate_og_image(title: str, category: str, out_path: Path) -> bool:
+    """
+    生成 800×420 OG 配圖，存到 out_path。
+    回傳 True 表示成功，False 表示 Pillow 不可用或失敗。
+    """
+    if not _PIL_OK:
+        return False
+    try:
+        W, H = 800, 420
+
+        # ── 背景漸層（深紅→深紫紅）──
+        img = Image.new("RGB", (W, H))
+        draw = ImageDraw.Draw(img)
+        for i in range(H):
+            t = i / H
+            r = int(160 * (1 - t) + 100 * t)
+            g = int(28  * (1 - t) + 15  * t)
+            b = int(28  * (1 - t) + 70  * t)
+            draw.line([(0, i), (W, i)], fill=(r, g, b))
+
+        # ── 頂部金色條 ──
+        draw.rectangle([0, 0, W, 7], fill=(212, 175, 55))
+        # ── 底部金色條 ──
+        draw.rectangle([0, H - 7, W, H], fill=(212, 175, 55))
+
+        # ── 右下角裝飾圓（半透明感） ──
+        draw.ellipse([W - 160, H - 160, W + 60, H + 60],
+                     fill=(255, 200, 80, 25))
+
+        # ── 品牌名 ──
+        font_brand = _get_font(24, serif=True)
+        draw.text((44, 22), "月下 · 感情占卜", font=font_brand,
+                  fill=(212, 175, 55))
+
+        # ── 分類標籤 ──
+        font_cat = _get_font(19, serif=False)
+        cat_text = f"# {category}"
+        draw.text((44, 56), cat_text, font=font_cat, fill=(255, 200, 150))
+
+        # ── 分隔線 ──
+        draw.line([(44, 86), (W - 44, 86)], fill=(255, 255, 255, 60), width=1)
+
+        # ── 標題（自動換行，每行 ≤13 字） ──
+        font_title = _get_font(40, serif=True)
+        lines = textwrap.wrap(title, width=13)[:3]  # 最多3行
+        y = 108
+        for line in lines:
+            draw.text((44, y), line, font=font_title, fill=(255, 255, 255))
+            y += 56
+
+        # ── 副文案 ──
+        font_sub = _get_font(20, serif=False)
+        draw.text((44, y + 18),
+                  "深度解析 · 感情建議 · 實用攻略",
+                  font=font_sub, fill=(255, 210, 170))
+
+        # ── 底部域名 ──
+        font_url = _get_font(17, serif=False)
+        draw.text((44, H - 36), "cqseo.github.io/heimaoseo",
+                  font=font_url, fill=(200, 200, 200))
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        img.save(str(out_path), "PNG", optimize=True)
+        return True
+    except Exception as e:
+        print(f"  [OG圖生成失敗] {e}")
+        return False
+
+
 def _clean_text(text: str) -> str:
     """移除 LLM 可能帶入的 Markdown 符號，確保輸出是乾淨的 HTML 文字"""
     # 移除 **粗體**、*斜體*、__底線__ 等 markdown 符號
@@ -1003,9 +1111,10 @@ def _clean_text(text: str) -> str:
 
 
 def render_html(item: dict, data: dict) -> str:
-    slug     = item["slug"]
+    slug      = item["slug"]
     canonical = f"{SITE_BASE}/p/{slug}/"
-    cta_url  = f"{TARGET_URL}?utm_source=seo&utm_medium={item['utm']}&utm_campaign={slug}"
+    og_image_url = f"{SITE_BASE}/p/{slug}/og.png"
+    cta_url   = f"{TARGET_URL}?utm_source=seo&utm_medium={item['utm']}&utm_campaign={slug}"
     cat_slug = item["category"].replace("星座","zodiac").replace("生肖","shengxiao")\
                                .replace("塔羅","tarot").replace("廟宇","temple")\
                                .replace("月老","yuelao").replace("運勢","fortune")\
@@ -1032,6 +1141,7 @@ def render_html(item: dict, data: dict) -> str:
         title=item["title"], site_name=SITE_NAME, site_base=SITE_BASE,
         desc=item["desc"], keywords=item["keywords"],
         canonical=canonical, cta_url=cta_url, target_url=TARGET_URL,
+        og_image_url=og_image_url,
         category=item["category"], cat_slug=cat_slug,
         para1=para1_clean, para2=para2_clean,
         faq_html=faq_html, tips_html=tips_html,
@@ -1239,6 +1349,9 @@ def main():
             page_dir = DOCS_DIR / "p" / item["slug"]
             page_dir.mkdir(parents=True, exist_ok=True)
             (page_dir / "index.html").write_text(html, encoding="utf-8")
+            # 生成 OG 配圖
+            generate_og_image(item["title"], item["category"],
+                              page_dir / "og.png")
 
             url = f"{SITE_BASE}/p/{item['slug']}/"
             save_done(item["title"])
