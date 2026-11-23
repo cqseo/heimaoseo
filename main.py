@@ -28,7 +28,7 @@ BATCH_SIZE      = int(os.environ.get("BATCH_SIZE", "50"))
 SITE_DOMAIN  = os.environ.get("SITE_DOMAIN", "cqseo.github.io/heimaoseo")
 SITE_BASE    = f"https://{SITE_DOMAIN}"
 TARGET_URL   = "https://yuexia.app/"
-SITE_NAME    = "月夏星座館"
+SITE_NAME    = "月下"
 SITE_DESC    = "專業感情占卜、星座運勢、塔羅解析，幫助你找到感情答案"
 
 # 輸出目錄
@@ -308,6 +308,33 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
           {{"@type":"ListItem","position":2,"name":"{category}","item":"{site_base}/category/{cat_slug}/"}},
           {{"@type":"ListItem","position":3,"name":"{title}","item":"{canonical}"}}
         ]
+      }},
+      {{
+        "@type": "WebPage",
+        "@id": "{canonical}",
+        "url": "{canonical}",
+        "name": "{title}",
+        "description": "{desc}",
+        "inLanguage": "zh-TW",
+        "speakable": {{
+          "@type": "SpeakableSpecification",
+          "cssSelector": ["h1", "article h2", "article p"]
+        }},
+        "isPartOf": {{"@id": "{site_base}/#website"}},
+        "primaryImageOfPage": {{"@type": "ImageObject", "url": "{site_base}/og-image.png"}}
+      }},
+      {{
+        "@type": "WebSite",
+        "@id": "{site_base}/#website",
+        "url": "{site_base}/",
+        "name": "{site_name}",
+        "description": "專業感情占卜、星座運勢、塔羅解析，幫助你找到感情答案",
+        "inLanguage": "zh-TW",
+        "potentialAction": {{
+          "@type": "SearchAction",
+          "target": "{site_base}/?s={{search_term_string}}",
+          "query-input": "required name=search_term_string"
+        }}
       }}
     ]
   }}
@@ -427,15 +454,15 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 
   <!-- 底部 CTA -->
   <div class="bottom-cta">
-    <p>還有更多疑問？讓月夏的專業老師為你一對一解答</p>
-    <a class="cta-btn" href="{cta_url}">➡ 前往月夏，獲得你的專屬感情指引</a>
+    <p>還有更多疑問？讓月下的專業老師為你一對一解答</p>
+    <a class="cta-btn" href="{cta_url}">➡ 前往月下，獲得你的專屬感情指引</a>
   </div>
 
 </div>
 
 <footer>
   <p>© 2025 <a href="{site_base}/">{site_name}</a> · 感情占卜 · 星座運勢 · 塔羅解析</p>
-  <p style="margin-top:8px"><a href="{target_url}">月夏官網</a></p>
+  <p style="margin-top:8px"><a href="{target_url}">月下官網</a></p>
 </footer>
 
 </body>
@@ -578,7 +605,7 @@ def generate_index(corpus: list[dict], done: set):
   </div>
   {cards}
 </div>
-<footer>© 2025 {SITE_NAME} · <a href="{TARGET_URL}">月夏官網</a> · <a href="{SITE_BASE}/sitemap.xml">Sitemap</a></footer>
+<footer>© 2025 {SITE_NAME} · <a href="{TARGET_URL}">月下官網</a> · <a href="{SITE_BASE}/sitemap.xml">Sitemap</a></footer>
 </body>
 </html>'''
     (DOCS_DIR / "index.html").write_text(html, encoding="utf-8")
@@ -597,8 +624,12 @@ def generate_content(client: OpenAI, prompt: str) -> dict:
                     {"role": "system", "content": (
                         "你是專業的台灣繁體中文感情命理內容創作者，"
                         "擅長撰寫有深度、有共鳴的感情諮詢長文。"
-                        "輸出必須是合法 JSON，不要加 markdown 代碼塊，"
-                        "不要出現任何簡體字。"
+                        "嚴格規定：\n"
+                        "1. 全程使用台灣正體中文，絕對禁止出現簡體字、英文或任何非中文字符\n"
+                        "2. 輸出必須是合法 JSON 格式，不要加 markdown 代碼塊或反引號\n"
+                        "3. para1 和 para2 每段必須超過 350 字\n"
+                        "4. FAQ 的 Q 和 A 也必須用繁體中文\n"
+                        "5. 語氣親切口語化，符合台灣用語習慣"
                     )},
                     {"role": "user", "content": prompt},
                 ],
