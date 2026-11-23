@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: "本次生成頁數（預設 50）"
+        description: "本次生成頁數（預設 400）"
         required: false
-        default: "50"
+        default: "400"
       model_name:
         description: "使用的模型（預設 deepseek-chat）"
         required: false
@@ -15,9 +15,13 @@ on:
         description: "站點域名（如已綁定自定義域名填這裡）"
         required: false
         default: ""
+      auto_continue:
+        description: "完成後自動觸發下一批（true/false）"
+        required: false
+        default: "true"
 
   schedule:
-    # 每 3 小時跑一批，避免 API 超支
+    # 每 3 小時跑一批（備用保底）
     - cron: "0 */3 * * *"
 
 permissions:
@@ -45,17 +49,24 @@ jobs:
       - name: 安裝依賴
         run: pip install -r requirements.txt
 
+      - name: 安裝中文字體（Noto CJK）
+        run: |
+          if ! fc-list :lang=zh | grep -q Noto; then
+            sudo apt-get install -y fonts-noto-cjk 2>/dev/null || true
+          fi
+          echo "字體已就緒"
+
       - name: 生成 SEO 靜態頁面
         env:
           OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.deepseek.com/v1' }}
           MODEL_NAME:      ${{ github.event.inputs.model_name || 'deepseek-chat' }}
-          BATCH_SIZE:      ${{ github.event.inputs.batch_size || '50' }}
-          # 優先用手動輸入的域名，其次用 Secret，再次用默認
+          BATCH_SIZE:      ${{ github.event.inputs.batch_size || '400' }}
           SITE_DOMAIN:     ${{ github.event.inputs.site_domain || secrets.SITE_DOMAIN || 'cqseo.github.io/heimaoseo' }}
         run: python main.py
 
       - name: 提交生成的文件到倉庫
+        id: commit
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
@@ -64,12 +75,17 @@ jobs:
 
           if git diff --cached --quiet; then
             echo "本次無新頁面生成"
+            echo "new_pages=0" >> $GITHUB_OUTPUT
           else
             NEW=$(git diff --cached --stat docs/p/ 2>/dev/null | grep -oP '\d+(?= insertion)' | head -1 || echo "0")
             TOTAL=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
+            DONE=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
             git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]"
             git push
             echo "✅ 已推送 ${NEW} 頁新內容，站點累計 ${TOTAL} 頁"
+            echo "new_pages=${NEW}" >> $GITHUB_OUTPUT
+            echo "total_pages=${TOTAL}" >> $GITHUB_OUTPUT
+            echo "done_count=${DONE}" >> $GITHUB_OUTPUT
           fi
 
       - name: 輸出進度摘要
@@ -78,9 +94,29 @@ jobs:
           echo "## 📊 生成摘要" >> $GITHUB_STEP_SUMMARY
           TOTAL_PAGES=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
           DONE_COUNT=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
-          REMAINING=$((1026 - DONE_COUNT))
+          CORPUS=4263
+          REMAINING=$((CORPUS - DONE_COUNT))
+          PCT=$((DONE_COUNT * 100 / CORPUS))
           echo "- **已生成頁面**：${TOTAL_PAGES} 頁" >> $GITHUB_STEP_SUMMARY
+          echo "- **詞庫完成度**：${DONE_COUNT} / ${CORPUS} 頁（${PCT}%）" >> $GITHUB_STEP_SUMMARY
           echo "- **剩餘待生成**：${REMAINING} 頁" >> $GITHUB_STEP_SUMMARY
           echo "- **GitHub Pages**：https://cqseo.github.io/heimaoseo/" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "🗺️ Sitemap：https://cqseo.github.io/heimaoseo/sitemap.xml" >> $GITHUB_STEP_SUMMARY
+          echo "- **Sitemap**：https://cqseo.github.io/heimaoseo/sitemap.xml" >> $GITHUB_STEP_SUMMARY
+
+      - name: 自動觸發下一批
+        if: steps.commit.outputs.new_pages != '0' && github.event.inputs.auto_continue != 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DONE=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
+          CORPUS=4263
+          if [ "${DONE}" -lt "${CORPUS}" ]; then
+            echo "還剩 $((CORPUS - DONE)) 頁，自動觸發下一批..."
+            gh workflow run batch_publish.yml \
+              -f batch_size=400 \
+              -f auto_continue=true \
+              --repo ${{ github.repository }}
+            echo "✅ 下一批已觸發"
+          else
+            echo "🎉 全部 ${CORPUS} 頁已生成完畢！"
+          fi
