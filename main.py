@@ -92,8 +92,8 @@ def build_corpus() -> list[dict]:
     # 維度：場景 × 行為 × 情緒 × 時間 × 性別 × 星座/生肖/牌/廟宇
     # ═══════════════════════════════════════════════════════════════════
 
-    def _make(title, utm, category, keywords, desc, prompt_core):
-        """統一建構詞條，slug 從標題自動生成拼音"""
+    def _make(title, utm, category, keywords, desc, prompt_core, slug=""):
+        """統一建構詞條，slug 可選；若空則從標題自動生成拼音"""
         p = (
             f"請用道地台灣繁體中文，針對「{title}」這個主題，"
             f"寫一篇1200字以上的深度感情分析或命理解答文章。\n"
@@ -110,7 +110,7 @@ def build_corpus() -> list[dict]:
             f"\"tips\":[\"...\",\"...\",\"...\"]}}"
         )
         add({
-            "title": title, "slug": "",   # 空 slug → add() 自動從標題生成
+            "title": title, "slug": slug,   # 傳入的 slug 優先；空字串 → add() 自動從標題生成
             "utm": utm, "category": category,
             "keywords": keywords, "desc": desc,
             "prompt": p,
