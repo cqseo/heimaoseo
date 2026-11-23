@@ -23,6 +23,12 @@ try:
 except ImportError:
     _PIL_OK = False
 
+try:
+    from pypinyin import lazy_pinyin
+    _PINYIN_OK = True
+except ImportError:
+    _PINYIN_OK = False
+
 # ─────────────────────────────────────────────
 # 環境變數配置
 # ─────────────────────────────────────────────
@@ -57,8 +63,24 @@ def build_corpus() -> list[dict]:
     corpus = []
     seen_slugs: set = set()
 
+    def _title_to_slug(title: str, max_len: int = 60) -> str:
+        """把中文標題轉成拼音 slug，數字/英文保留原樣"""
+        t = re.sub(r'[｜|【】《》「」『』、，。？！：；…—·\s]+', '-', title)
+        if _PINYIN_OK:
+            parts = lazy_pinyin(t)
+        else:
+            # fallback：只保留 ASCII + 數字
+            parts = [c if c.isascii() else '' for c in t]
+        slug = '-'.join(p for p in parts if p)
+        slug = re.sub(r'-+', '-', slug).strip('-').lower()
+        if len(slug) > max_len:
+            slug = slug[:max_len].rsplit('-', 1)[0]
+        return slug
+
     def add(item: dict):
-        """加入後自動去重"""
+        """加入後自動去重；若無 slug 則從標題生成"""
+        if not item.get("slug"):
+            item["slug"] = _title_to_slug(item["title"])
         s = item["slug"]
         if s in seen_slugs:
             return
@@ -70,8 +92,8 @@ def build_corpus() -> list[dict]:
     # 維度：場景 × 行為 × 情緒 × 時間 × 性別 × 星座/生肖/牌/廟宇
     # ═══════════════════════════════════════════════════════════════════
 
-    def _make(title, slug, utm, category, keywords, desc, prompt_core):
-        """統一建構詞條，prompt 格式固定"""
+    def _make(title, utm, category, keywords, desc, prompt_core):
+        """統一建構詞條，slug 從標題自動生成拼音"""
         p = (
             f"請用道地台灣繁體中文，針對「{title}」這個主題，"
             f"寫一篇1200字以上的深度感情分析或命理解答文章。\n"
@@ -88,7 +110,7 @@ def build_corpus() -> list[dict]:
             f"\"tips\":[\"...\",\"...\",\"...\"]}}"
         )
         add({
-            "title": title, "slug": slug,
+            "title": title, "slug": "",   # 空 slug → add() 自動從標題生成
             "utm": utm, "category": category,
             "keywords": keywords, "desc": desc,
             "prompt": p,
