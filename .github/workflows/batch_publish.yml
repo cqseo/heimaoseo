@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       batch_size:
-        description: "本次生成頁數（預設 400）"
+        description: "每批生成頁數（預設 400）"
         required: false
         default: "400"
       model_name:
@@ -15,13 +15,9 @@ on:
         description: "站點域名（如已綁定自定義域名填這裡）"
         required: false
         default: ""
-      auto_continue:
-        description: "完成後自動觸發下一批（true/false）"
-        required: false
-        default: "true"
 
   schedule:
-    # 每 3 小時跑一批（備用保底）
+    # 每 3 小時保底跑一次（以防中途失敗）
     - cron: "0 */3 * * *"
 
 permissions:
@@ -32,7 +28,7 @@ permissions:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 110
+    timeout-minutes: 350   # 最多 ~6 小時，足夠跑完全部 4263 頁
 
     steps:
       - name: Checkout 倉庫
@@ -56,38 +52,45 @@ jobs:
           fi
           echo "字體已就緒"
 
-      - name: 生成 SEO 靜態頁面
+      - name: 循環生成直到全部完成
         env:
           OPENAI_API_KEY:  ${{ secrets.OPENAI_API_KEY }}
           OPENAI_BASE_URL: ${{ secrets.OPENAI_BASE_URL || 'https://api.deepseek.com/v1' }}
           MODEL_NAME:      ${{ github.event.inputs.model_name || 'deepseek-chat' }}
           BATCH_SIZE:      ${{ github.event.inputs.batch_size || '400' }}
           SITE_DOMAIN:     ${{ github.event.inputs.site_domain || secrets.SITE_DOMAIN || 'cqseo.github.io/heimaoseo' }}
-        run: python main.py
-
-      - name: 提交生成的文件到倉庫
-        id: commit
+          WORKERS:         "10"
         run: |
+          CORPUS=4263
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          git add docs/ done_titles.txt published_urls.txt || true
-
-          if git diff --cached --quiet; then
-            echo "本次無新頁面生成"
-            echo "new_pages=0" >> $GITHUB_OUTPUT
-          else
-            NEW=$(git diff --cached --stat docs/p/ 2>/dev/null | grep -oP '\d+(?= insertion)' | head -1 || echo "0")
-            TOTAL=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
+          while true; do
             DONE=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
-            git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]"
-            git pull --rebase origin main
-            git push
-            echo "✅ 已推送 ${NEW} 頁新內容，站點累計 ${TOTAL} 頁"
-            echo "new_pages=${NEW}" >> $GITHUB_OUTPUT
-            echo "total_pages=${TOTAL}" >> $GITHUB_OUTPUT
-            echo "done_count=${DONE}" >> $GITHUB_OUTPUT
-          fi
+            echo "━━━ 當前進度：${DONE} / ${CORPUS} 頁 ━━━"
+
+            if [ "${DONE}" -ge "${CORPUS}" ]; then
+              echo "🎉 全部 ${CORPUS} 頁已生成完畢！"
+              break
+            fi
+
+            # 跑一批
+            python main.py
+
+            # 提交這批結果
+            git add docs/ done_titles.txt published_urls.txt 2>/dev/null || true
+            if ! git diff --cached --quiet; then
+              NEW=$(git diff --cached --stat docs/p/ 2>/dev/null | grep -oP '\d+(?= insertion)' | head -1 || echo "0")
+              TOTAL=$(find docs/p -name 'index.html' 2>/dev/null | wc -l)
+              git commit -m "🤖 SEO 頁面：本批 +${NEW} 頁，累計 ${TOTAL} 頁 [skip ci]"
+              git pull --rebase origin main
+              git push
+              echo "✅ 已推送 ${NEW} 頁，累計 ${TOTAL} 頁"
+            else
+              echo "本批無新頁面，結束循環"
+              break
+            fi
+          done
 
       - name: 輸出進度摘要
         if: always()
@@ -103,22 +106,3 @@ jobs:
           echo "- **剩餘待生成**：${REMAINING} 頁" >> $GITHUB_STEP_SUMMARY
           echo "- **GitHub Pages**：https://cqseo.github.io/heimaoseo/" >> $GITHUB_STEP_SUMMARY
           echo "- **Sitemap**：https://cqseo.github.io/heimaoseo/sitemap.xml" >> $GITHUB_STEP_SUMMARY
-
-      - name: 自動觸發下一批
-        if: steps.commit.outputs.new_pages != '0' && github.event.inputs.auto_continue != 'false'
-        env:
-          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-        run: |
-          DONE=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
-          CORPUS=4263
-          if [ "${DONE}" -lt "${CORPUS}" ]; then
-            echo "還剩 $((CORPUS - DONE)) 頁，嘗試自動觸發下一批..."
-            # GITHUB_TOKEN 無法觸發 workflow dispatch，需要 PAT_TOKEN
-            # 若失敗也不影響本批結果，cron 每3小時會繼續跑
-            gh workflow run batch_publish.yml \
-              -f batch_size=400 \
-              -f auto_continue=true \
-              --repo ${{ github.repository }} || echo "⚠️ 自動觸發失敗（需要 PAT_TOKEN），cron 將在3小時內繼續"
-          else
-            echo "🎉 全部 ${CORPUS} 頁已生成完畢！"
-          fi
