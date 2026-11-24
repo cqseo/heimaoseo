@@ -107,17 +107,18 @@ jobs:
       - name: 自動觸發下一批
         if: steps.commit.outputs.new_pages != '0' && github.event.inputs.auto_continue != 'false'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
         run: |
           DONE=$(wc -l < done_titles.txt 2>/dev/null || echo 0)
           CORPUS=4263
           if [ "${DONE}" -lt "${CORPUS}" ]; then
-            echo "還剩 $((CORPUS - DONE)) 頁，自動觸發下一批..."
+            echo "還剩 $((CORPUS - DONE)) 頁，嘗試自動觸發下一批..."
+            # GITHUB_TOKEN 無法觸發 workflow dispatch，需要 PAT_TOKEN
+            # 若失敗也不影響本批結果，cron 每3小時會繼續跑
             gh workflow run batch_publish.yml \
               -f batch_size=400 \
               -f auto_continue=true \
-              --repo ${{ github.repository }}
-            echo "✅ 下一批已觸發"
+              --repo ${{ github.repository }} || echo "⚠️ 自動觸發失敗（需要 PAT_TOKEN），cron 將在3小時內繼續"
           else
             echo "🎉 全部 ${CORPUS} 頁已生成完畢！"
           fi
