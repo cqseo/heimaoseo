@@ -1362,29 +1362,38 @@ def main():
 
     this_batch    = pending[:BATCH_SIZE]
     success_count = 0
+    lock = __import__("threading").Lock()
 
-    for idx, item in enumerate(this_batch, 1):
-        print(f"[{idx}/{len(this_batch)}] {item['title']}")
+    def process_one(args):
+        idx, item = args
         try:
             data     = generate_content(client, item["prompt"])
             html     = render_html(item, data)
             page_dir = DOCS_DIR / "p" / item["slug"]
             page_dir.mkdir(parents=True, exist_ok=True)
             (page_dir / "index.html").write_text(html, encoding="utf-8")
-            # 生成 OG 配圖
-            generate_og_image(item["title"], item["category"],
-                              page_dir / "og.png")
-
+            generate_og_image(item["title"], item["category"], page_dir / "og.png")
             url = f"{SITE_BASE}/p/{item['slug']}/"
-            save_done(item["title"])
-            save_url(url)
-            done.add(item["title"])
-            success_count += 1
-            print(f"  ✅ {url}")
+            with lock:
+                save_done(item["title"])
+                save_url(url)
+                done.add(item["title"])
+            print(f"  ✅ [{idx}/{len(this_batch)}] {url}")
+            return True
         except Exception as e:
-            print(f"  ❌ 失敗：{e}")
+            print(f"  ❌ [{idx}/{len(this_batch)}] {item['title']}：{e}")
+            return False
 
-        time.sleep(random.uniform(0.5, 1.2))
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    WORKERS = int(os.environ.get("WORKERS", "10"))
+    print(f"🚀 並發數：{WORKERS}")
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as executor:
+        futures = {executor.submit(process_one, (i+1, item)): item
+                   for i, item in enumerate(this_batch)}
+        for future in as_completed(futures):
+            if future.result():
+                success_count += 1
 
     # 更新 sitemap、robots、首頁
     all_slugs = [it["slug"] for it in corpus if it["title"] in done]
