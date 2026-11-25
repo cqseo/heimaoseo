@@ -1,0 +1,46 @@
+name: 重新渲染 CTA 連結
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  rerender:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout 倉庫
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: 設置 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 安裝依賴
+        run: pip install -r requirements.txt
+
+      - name: 重新渲染所有頁面 CTA 連結
+        env:
+          OPENAI_API_KEY: "dummy"
+        run: python rerender.py
+
+      - name: 提交更新
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add docs/
+          if ! git diff --cached --quiet; then
+            TOTAL=$(find docs/p -name 'index.html' | wc -l)
+            git commit -m "🔗 重新渲染 CTA 連結：${TOTAL} 頁跳轉到分類對應落地頁 [skip ci]"
+            git pull --rebase origin main
+            git push
+            echo "✅ 已推送"
+          else
+            echo "無變更"
+          fi
