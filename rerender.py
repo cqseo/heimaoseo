@@ -23,7 +23,41 @@ for page_dir in sorted(docs_p.iterdir()):
     slug = page_dir.name
     item = slug_to_item.get(slug)
     if not item:
-        skipped += 1
+        # 舊式 slug 找不到 item，根據前綴猜分類
+        if slug.startswith('tarot'):
+            _fallback_landing = 'market?lite=tarot#tarot'
+            _fallback_utm = 'tarot_card'
+        elif any(slug.startswith(p) for p in ['aquarius','pisces','aries','taurus','gemini','cancer','leo','virgo','libra','scorpio','sagittarius','capricorn']):
+            _fallback_landing = 'market#bazi'
+            _fallback_utm = 'zodiac'
+        elif any(slug.startswith(p) for p in ['rat-','ox-','tiger-','rabbit-','dragon-','snake-','horse-','goat-','monkey-','rooster-','dog-','pig-']):
+            _fallback_landing = 'market#bazi'
+            _fallback_utm = 'shengxiao'
+        elif any(slug.startswith(p) for p in ['taipei','tainan','taichung','kaohsiung','mazu','guanyin','chenghuang']):
+            _fallback_landing = 'jiaobei'
+            _fallback_utm = 'temple'
+        elif slug.startswith('psych'):
+            _fallback_landing = 'tests'
+            _fallback_utm = 'psychology'
+        else:
+            _fallback_landing = 'market?lite=1#yuelao'
+            _fallback_utm = 'yuelao'
+        # 直接替換
+        new_cta = (f'https://yuexia.app/{_fallback_landing}&utm_source=seo&utm_medium={_fallback_utm}&utm_campaign={slug}'
+                   if '?' in _fallback_landing else
+                   f'https://yuexia.app/{_fallback_landing}?utm_source=seo&utm_medium={_fallback_utm}&utm_campaign={slug}')
+        new_html = re.sub(
+            r'https://yuexia\.app/\?utm_source=seo[^"\'<\s]*',
+            new_cta,
+            old_html
+        )
+        if new_html != old_html:
+            html_file.write_text(new_html, encoding='utf-8')
+            updated += 1
+            if updated % 100 == 0:
+                print(f'  已更新 {updated} 頁...')
+        else:
+            skipped += 1
         continue
 
     old_html = html_file.read_text(encoding='utf-8')
