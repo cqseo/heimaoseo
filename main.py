@@ -1136,7 +1136,28 @@ def render_html(item: dict, data: dict) -> str:
     slug      = item["slug"]
     canonical = f"{SITE_BASE}/p/{slug}/"
     og_image_url = f"{SITE_BASE}/p/{slug}/og.png"
-    cta_url   = f"{TARGET_URL}?utm_source=seo&utm_medium={item['utm']}&utm_campaign={slug}"
+    # 按分類跳到最相關的落地頁，提升轉化率
+    _CAT_LANDING = {
+        "月老靈籤": "market?lite=1#yuelao",
+        "塔羅占卜": "market?lite=tarot#tarot",
+        "八字命理": "market#bazi",
+        "廟宇祈福": "jiaobei",
+        "感情修復": "market?lite=1#yuelao",
+        "感情占卜": "market?lite=1#yuelao",
+        "感情心理": "tests",
+        "感情技巧": "market?lite=1#yuelao",
+        "星座感情": "market#bazi",
+        "星座進階": "market#bazi",
+        "星座運勢": "market#bazi",
+        "星座配對": "market#bazi",
+        "生肖運勢": "market#bazi",
+    }
+    _landing = _CAT_LANDING.get(item["category"], "market?lite=1#yuelao")
+    cta_url = (f"https://yuexia.app/{_landing}"
+               f"&utm_source=seo&utm_medium={item['utm']}&utm_campaign={slug}"
+               if "?" in _landing else
+               f"https://yuexia.app/{_landing}"
+               f"?utm_source=seo&utm_medium={item['utm']}&utm_campaign={slug}")
     cat_slug = item["category"].replace("星座","zodiac").replace("生肖","shengxiao")\
                                .replace("塔羅","tarot").replace("廟宇","temple")\
                                .replace("月老","yuelao").replace("運勢","fortune")\
