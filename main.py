@@ -812,6 +812,14 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:image" content="{og_image_url}">
 
+  <!-- Google Tag Manager -->
+  <script>(function(w,d,s,l,i){{w[l]=w[l]||[];w[l].push({{'gtm.start':
+  new Date().getTime(),event:'gtm.js'}});var f=d.getElementsByTagName(s)[0],
+  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+  }})(window,document,'script','dataLayer','GTM-P3HF5V64');</script>
+  <!-- End Google Tag Manager -->
+
   <!-- Schema.org -->
   <script type="application/ld+json">
   {{
@@ -942,6 +950,10 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
   </style>
 </head>
 <body>
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-P3HF5V64"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
 
 <header>
   <a href="{site_base}/">🔮 {site_name}</a>
